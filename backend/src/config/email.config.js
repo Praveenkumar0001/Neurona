@@ -1,19 +1,36 @@
-const nodemailer = require('nodemailer');
-const config = require('./config');
+// src/config/email.config.js
+import nodemailer from 'nodemailer';
+import config from './config.js';
 
-const createTransporter = () => {
+export default function createTransporter() {
+  const {
+    host,
+    port = 587,
+    secure = false,
+    user,
+    pass,
+    service // optional, e.g. "gmail"
+  } = config.email || {};
+
+  const base = service
+    ? { service, auth: { user, pass } }
+    : {
+        host,
+        port: Number(port),
+        secure: Boolean(secure),
+        auth: user && pass ? { user, pass } : undefined
+      };
+
   return nodemailer.createTransport({
-    host: config.email.host,
-    port: config.email.port,
-    secure: config.email.secure,
-    auth: {
-      user: config.email.user,
-      pass: config.email.pass
-    },
-    tls: {
-      rejectUnauthorized: false
-    }
+    ...base,
+    pool: true,
+    maxConnections: 5,
+    maxMessages: 100,
+    // optional: allow self-signed certs if you set this in config
+    ...(config.email?.tlsRejectUnauthorized === false
+      ? { tls: { rejectUnauthorized: false } }
+      : {})
   });
-};
+}
 
-module.exports = createTransporter;
+// export default createTransporter;

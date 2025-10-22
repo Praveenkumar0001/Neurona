@@ -22,7 +22,7 @@ const DoctorListing = () => {
 
   useEffect(() => {
     fetchDoctors();
-  }, [filters, pagination]);
+  }, []);
 
   const fetchDoctors = async () => {
     try {

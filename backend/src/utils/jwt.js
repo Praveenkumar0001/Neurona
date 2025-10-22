@@ -1,34 +1,43 @@
-const jwt = require('jsonwebtoken');
-const config = require('../config/config');
+// src/utils/jwt.js
+import jwt from 'jsonwebtoken';
+import dotenv from 'dotenv';
 
-// Generate JWT token
-exports.generateToken = (userId) => {
+// ✅ Load environment variables
+dotenv.config();
+
+/** Generate short-lived access token */
+export const generateToken = (userId) => {
+  if (!process.env.JWT_SECRET) {
+    console.error("❌ JWT_SECRET is missing from environment variables");
+    throw new Error("Server misconfiguration: JWT_SECRET missing");
+  }
+
   return jwt.sign(
     { id: userId },
-    config.jwtSecret,
-    { expiresIn: config.jwtExpire }
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRE || '7d' }
   );
 };
 
-// Verify JWT token
-exports.verifyToken = (token) => {
+/** Verify and return decoded payload; throws if invalid/expired */
+export const verifyToken = (token) => {
   try {
-    return jwt.verify(token, config.jwtSecret);
-  } catch (error) {
-    throw new Error('Invalid token');
+    return jwt.verify(token, process.env.JWT_SECRET);
+  } catch (err) {
+    const e = new Error('Invalid or expired token');
+    e.statusCode = 401;
+    throw e;
   }
 };
 
-// Decode token without verification (for debugging)
-exports.decodeToken = (token) => {
-  return jwt.decode(token);
-};
+/** Decode token without verifying (for logging/debug only) */
+export const decodeToken = (token) => jwt.decode(token);
 
-// Generate refresh token (longer expiry)
-exports.generateRefreshToken = (userId) => {
+/** Generate longer-lived refresh token */
+export const generateRefreshToken = (userId) => {
   return jwt.sign(
     { id: userId, type: 'refresh' },
-    config.jwtSecret,
-    { expiresIn: '30d' }
+    process.env.JWT_SECRET,
+    { expiresIn: '7d' }
   );
 };

@@ -1,9 +1,9 @@
-const express = require('express');
-const { body } = require('express-validator');
-const authController = require('../controllers/authController');
-const { authenticate } = require('../middleware/auth.middleware');
-const { validate } = require('../middleware/validation.middleware');
-const { authLimiter, passwordResetLimiter } = require('../middleware/rateLimit.middleware');
+import express from 'express';
+import { body } from 'express-validator';
+import * as authController from '../controllers/authController.js';
+import { authenticate } from '../middleware/auth.middleware.js';
+import { validate } from '../middleware/validation.middleware.js';
+import { authLimiter, passwordResetLimiter } from '../middleware/rateLimit.middleware.js';
 
 const router = express.Router();
 
@@ -126,4 +126,4 @@ router.put('/reset-password/:token', [
  */
 router.post('/logout', authenticate, authController.logout);
 
-module.exports = router;
+export default router;

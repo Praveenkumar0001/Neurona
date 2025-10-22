@@ -1,6 +1,7 @@
-const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
-const crypto = require('crypto');
+// src/models/User.js (ESM)
+import mongoose from 'mongoose';
+import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 
 const userSchema = new mongoose.Schema({
   email: {
@@ -21,49 +22,26 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Password is required'],
     minlength: [8, 'Password must be at least 8 characters'],
-    select: false // Don't include password in queries by default
+    select: false
   },
   role: {
     type: String,
-    enum: {
-      values: ['patient', 'doctor', 'admin'],
-      message: 'Role must be either patient, doctor, or admin'
-    },
+    enum: { values: ['patient', 'doctor', 'admin'], message: 'Role must be either patient, doctor, or admin' },
     required: true,
     default: 'patient'
   },
   profile: {
-    name: {
-      type: String,
-      required: [true, 'Name is required'],
-      trim: true
-    },
-    age: {
-      type: Number,
-      min: [1, 'Age must be positive'],
-      max: [120, 'Age must be valid']
-    },
-    gender: {
-      type: String,
-      enum: ['male', 'female', 'other', 'prefer not to say']
-    },
-    avatar: {
-      type: String,
-      default: 'https://ui-avatars.com/api/?name=User&background=2563eb&color=fff'
-    },
+    name: { type: String, required: [true, 'Name is required'], trim: true },
+    age: { type: Number, min: [1, 'Age must be positive'], max: [120, 'Age must be valid'] },
+    gender: { type: String, enum: ['male', 'female', 'other', 'prefer not to say'] },
+    avatar: { type: String, default: 'https://ui-avatars.com/api/?name=User&background=2563eb&color=fff' },
     address: String,
     city: String,
     state: String,
     pincode: String
   },
-  isVerified: {
-    type: Boolean,
-    default: false
-  },
-  isActive: {
-    type: Boolean,
-    default: true
-  },
+  isVerified: { type: Boolean, default: false },
+  isActive:   { type: Boolean, default: true },
   resetPasswordToken: String,
   resetPasswordExpires: Date,
   emailVerificationToken: String,
@@ -75,78 +53,50 @@ const userSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
-// Indexes for better query performance
 userSchema.index({ email: 1 });
 userSchema.index({ phone: 1 });
 userSchema.index({ role: 1 });
 userSchema.index({ 'profile.name': 1 });
 
-// Virtual for full name
-userSchema.virtual('fullName').get(function() {
+userSchema.virtual('fullName').get(function () {
   return this.profile.name;
 });
 
-// Hash password before saving
-userSchema.pre('save', async function(next) {
-  // Only hash if password is modified
-  if (!this.isModified('password')) {
-    return next();
-  }
-  
+userSchema.pre('save', async function (next) {
+  if (!this.isModified('password')) return next();
   try {
     const salt = await bcrypt.genSalt(12);
     this.password = await bcrypt.hash(this.password, salt);
     next();
-  } catch (error) {
-    next(error);
+  } catch (err) {
+    next(err);
   }
 });
 
-// Update lastLogin on successful login
-userSchema.methods.updateLastLogin = function() {
+userSchema.methods.updateLastLogin = function () {
   this.lastLogin = Date.now();
   return this.save();
 };
 
-// Compare password method
-userSchema.methods.comparePassword = async function(candidatePassword) {
-  try {
-    return await bcrypt.compare(candidatePassword, this.password);
-  } catch (error) {
-    throw new Error('Password comparison failed');
-  }
+userSchema.methods.comparePassword = function (candidatePassword) {
+  return bcrypt.compare(candidatePassword, this.password);
 };
 
-// Generate password reset token
-userSchema.methods.generatePasswordResetToken = function() {
+userSchema.methods.generatePasswordResetToken = function () {
   const resetToken = crypto.randomBytes(32).toString('hex');
-  
-  this.resetPasswordToken = crypto
-    .createHash('sha256')
-    .update(resetToken)
-    .digest('hex');
-    
+  this.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
   this.resetPasswordExpires = Date.now() + 3600000; // 1 hour
-  
   return resetToken;
 };
 
-// Generate email verification token
-userSchema.methods.generateEmailVerificationToken = function() {
-  const verificationToken = crypto.randomBytes(32).toString('hex');
-  
-  this.emailVerificationToken = crypto
-    .createHash('sha256')
-    .update(verificationToken)
-    .digest('hex');
-    
+userSchema.methods.generateEmailVerificationToken = function () {
+  const token = crypto.randomBytes(32).toString('hex');
+  this.emailVerificationToken = crypto.createHash('sha256').update(token).digest('hex');
   this.emailVerificationExpires = Date.now() + 86400000; // 24 hours
-  
-  return verificationToken;
+  return token;
 };
 
-// Remove sensitive data when converting to JSON
-userSchema.methods.toJSON = function() {
+userSchema.methods.toJSON = function () {
   const user = this.toObject();
   delete user.password;
   delete user.resetPasswordToken;
@@ -156,4 +106,6 @@ userSchema.methods.toJSON = function() {
   return user;
 };
 
-module.exports = mongoose.model('User', userSchema);
+// Avoid model recompile errors in dev/hot-reload:
+const User = mongoose.models.User || mongoose.model('User', userSchema);
+export default User; // 👈 makes `import User from '../models/User.js'` work

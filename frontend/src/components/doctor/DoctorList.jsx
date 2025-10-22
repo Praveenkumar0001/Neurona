@@ -8,7 +8,7 @@ const DoctorList = ({ filters = {} }) => {
 
   useEffect(() => {
     fetchDoctors(filters);
-  }, [filters]);
+  }, []);
 
   if (loading) return <Loading />;
 

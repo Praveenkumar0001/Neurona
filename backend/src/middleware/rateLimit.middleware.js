@@ -1,8 +1,8 @@
-const rateLimit = require('express-rate-limit');
-const config = require('../config/config');
+import rateLimit from 'express-rate-limit';
+import config from '../config/config.js';
 
 // General API rate limiter
-exports.apiLimiter = rateLimit({
+export const apiLimiter = rateLimit({
   windowMs: config.rateLimit.windowMs,
   max: config.rateLimit.max,
   message: {
@@ -14,7 +14,7 @@ exports.apiLimiter = rateLimit({
 });
 
 // Stricter rate limit for authentication routes
-exports.authLimiter = rateLimit({
+export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 5, // 5 requests per windowMs
   skipSuccessfulRequests: true,
@@ -25,7 +25,7 @@ exports.authLimiter = rateLimit({
 });
 
 // Rate limit for password reset
-exports.passwordResetLimiter = rateLimit({
+export const passwordResetLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 3, // 3 requests per hour
   message: {
@@ -35,7 +35,7 @@ exports.passwordResetLimiter = rateLimit({
 });
 
 // Rate limit for file uploads
-exports.uploadLimiter = rateLimit({
+export const uploadLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 10, // 10 uploads per hour
   message: {

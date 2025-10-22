@@ -1,12 +1,12 @@
-const crypto = require('crypto');
+import crypto from 'crypto';
 
 // Generate random string
-exports.generateRandomString = (length = 32) => {
+export const generateRandomString = (length = 32) => {
   return crypto.randomBytes(length).toString('hex');
 };
 
 // Generate OTP
-exports.generateOTP = (length = 6) => {
+export const generateOTP = (length = 6) => {
   const digits = '0123456789';
   let otp = '';
   for (let i = 0; i < length; i++) {
@@ -16,12 +16,12 @@ exports.generateOTP = (length = 6) => {
 };
 
 // Hash string using SHA256
-exports.hashString = (str) => {
+export const hashString = (str) => {
   return crypto.createHash('sha256').update(str).digest('hex');
 };
 
 // Format date to readable string
-exports.formatDate = (date) => {
+export const formatDate = (date) => {
   return new Date(date).toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'long',
@@ -30,7 +30,7 @@ exports.formatDate = (date) => {
 };
 
 // Format time to 12-hour format
-exports.formatTime = (time) => {
+export const formatTime = (time) => {
   const [hours, minutes] = time.split(':');
   const hour = parseInt(hours);
   const ampm = hour >= 12 ? 'PM' : 'AM';
@@ -39,36 +39,31 @@ exports.formatTime = (time) => {
 };
 
 // Calculate age from date of birth
-exports.calculateAge = (dob) => {
+export const calculateAge = (dob) => {
   const today = new Date();
   const birthDate = new Date(dob);
   let age = today.getFullYear() - birthDate.getFullYear();
   const monthDiff = today.getMonth() - birthDate.getMonth();
-  
+
   if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
     age--;
   }
-  
+
   return age;
 };
 
 // Pagination helper
-exports.getPagination = (page = 1, limit = 10) => {
+export const getPagination = (page = 1, limit = 10) => {
   const pageNum = parseInt(page);
   const limitNum = parseInt(limit);
   const skip = (pageNum - 1) * limitNum;
-  
-  return {
-    page: pageNum,
-    limit: limitNum,
-    skip
-  };
+
+  return { page: pageNum, limit: limitNum, skip };
 };
 
 // Build pagination response
-exports.buildPaginationResponse = (data, page, limit, total) => {
+export const buildPaginationResponse = (data, page, limit, total) => {
   const totalPages = Math.ceil(total / limit);
-  
   return {
     data,
     pagination: {
@@ -83,37 +78,27 @@ exports.buildPaginationResponse = (data, page, limit, total) => {
 };
 
 // Sleep function (for testing)
-exports.sleep = (ms) => {
-  return new Promise(resolve => setTimeout(resolve, ms));
-};
+export const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Deep clone object
-exports.deepClone = (obj) => {
-  return JSON.parse(JSON.stringify(obj));
-};
+export const deepClone = (obj) => JSON.parse(JSON.stringify(obj));
 
-// Remove undefined fields from object
-exports.removeUndefined = (obj) => {
+// Remove undefined fields
+export const removeUndefined = (obj) => {
   return Object.keys(obj).reduce((acc, key) => {
-    if (obj[key] !== undefined) {
-      acc[key] = obj[key];
-    }
+    if (obj[key] !== undefined) acc[key] = obj[key];
     return acc;
   }, {});
 };
 
 // Check if object is empty
-exports.isEmpty = (obj) => {
-  return Object.keys(obj).length === 0;
-};
+export const isEmpty = (obj) => Object.keys(obj).length === 0;
 
 // Capitalize first letter
-exports.capitalize = (str) => {
-  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
-};
+export const capitalize = (str) => str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
 
-// Generate slug from string
-exports.slugify = (str) => {
+// Generate slug
+export const slugify = (str) => {
   return str
     .toLowerCase()
     .trim()
@@ -123,17 +108,14 @@ exports.slugify = (str) => {
 };
 
 // Get day name from date
-exports.getDayName = (date) => {
-  return new Date(date).toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-};
+export const getDayName = (date) =>
+  new Date(date).toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
 
 // Check if date is in future
-exports.isFutureDate = (date) => {
-  return new Date(date) > new Date();
-};
+export const isFutureDate = (date) => new Date(date) > new Date();
 
 // Check if date is today
-exports.isToday = (date) => {
+export const isToday = (date) => {
   const today = new Date();
   const checkDate = new Date(date);
   return today.toDateString() === checkDate.toDateString();

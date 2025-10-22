@@ -1,49 +1,26 @@
-const express = require('express');
-const notificationController = require('../controllers/notificationController');
-const { authenticate } = require('../middleware/auth.middleware');
+// src/routes/notification.routes.js
+import express from 'express';
+import * as notificationController from '../controllers/notificationController.js';
+import * as auth from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
-/**
- * @route   GET /api/notifications
- * @desc    Get all notifications for logged-in user
- * @access  Private
- */
-router.get('/', authenticate, notificationController.getMyNotifications);
+/** GET /api/notifications */
+router.get('/', auth.authenticate, notificationController.getMyNotifications);
 
-/**
- * @route   GET /api/notifications/unread-count
- * @desc    Get unread notification count
- * @access  Private
- */
-router.get('/unread-count', authenticate, notificationController.getUnreadCount);
+/** GET /api/notifications/unread-count */
+router.get('/unread-count', auth.authenticate, notificationController.getUnreadCount);
 
-/**
- * @route   PUT /api/notifications/:id/read
- * @desc    Mark notification as read
- * @access  Private
- */
-router.put('/:id/read', authenticate, notificationController.markAsRead);
+/** PUT /api/notifications/:id/read */
+router.put('/:id/read', auth.authenticate, notificationController.markAsRead);
 
-/**
- * @route   PUT /api/notifications/read-all
- * @desc    Mark all notifications as read
- * @access  Private
- */
-router.put('/read-all', authenticate, notificationController.markAllAsRead);
+/** PUT /api/notifications/read-all */
+router.put('/read-all', auth.authenticate, notificationController.markAllAsRead);
 
-/**
- * @route   DELETE /api/notifications/:id
- * @desc    Delete notification
- * @access  Private
- */
-router.delete('/:id', authenticate, notificationController.deleteNotification);
+/** DELETE /api/notifications/:id */
+router.delete('/:id', auth.authenticate, notificationController.deleteNotification);
 
-/**
- * @route   DELETE /api/notifications/clear-read
- * @desc    Delete all read notifications
- * @access  Private
- */
-router.delete('/clear-read', authenticate, notificationController.clearReadNotifications);
+/** DELETE /api/notifications/clear-read */
+router.delete('/clear-read', auth.authenticate, notificationController.clearReadNotifications);
 
-module.exports = router;
+export default router; 

@@ -1,24 +1,51 @@
 {
-  "name": "backend",
+  "name": "neurona-backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "jest.config.js",
-  "directories": {
-    "test": "tests"
-  },
+  "description": "Backend API for Neurona mental health platform",
+  "main": "src/server.js",
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "seed": "node database/seeds/index.js",
+    "seed:doctors": "node database/seeds/seedDoctors.js",
+    "seed:users": "node database/seeds/seedUsers.js",
+    "test": "jest --coverage",
+    "test:watch": "jest --watch"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
+  "keywords": [
+    "mental-health",
+    "api",
+    "nodejs",
+    "express"
+  ],
+  "author": "Neurona Team",
+  "license": "MIT",
   "dependencies": {
-    "axios": "^1.12.2",
+    "bcryptjs": "^2.4.3",
+    "cloudinary": "^2.8.0",
+    "compression": "^1.7.4",
     "cors": "^2.8.5",
-    "dotenv": "^17.2.3",
-    "express": "^5.1.0",
-    "mongoose": "^8.19.1",
-    "openai": "^6.3.0"
+    "dotenv": "^16.6.1",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.1",
+    "express-validator": "^7.0.1",
+    "helmet": "^7.2.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.19.2",
+    "morgan": "^1.10.0",
+    "multer": "^1.4.5-lts.1",
+    "nodemailer": "^6.10.1",
+    "pdfkit": "^0.13.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.11",
+    "jest": "^29.7.0",
+    "nodemon": "^3.1.10",
+    "supertest": "^6.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
   }
 }

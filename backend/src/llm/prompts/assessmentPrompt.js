@@ -1,212 +1,92 @@
-// Medical Assessment Prompt Templates
+// Assessment Prompt Templates
 
-const SYSTEM_PROMPT = `You are a professional medical AI assistant helping patients understand their symptoms and guide them to appropriate care. You are knowledgeable, empathetic, and prioritize patient safety.
+const SYSTEM_PROMPT = `You are a medical AI assistant for Neurona, a healthcare platform. Your role is to:
+1. Ask relevant questions about symptoms in a conversational manner
+2. Gather information about symptom severity, duration, and related factors
+3. Provide empathetic responses while maintaining professionalism
+4. NEVER provide diagnoses or treatment recommendations
+5. Always recommend consulting with a healthcare professional
 
-IMPORTANT GUIDELINES:
-1. Never diagnose - only provide possible conditions and recommendations
-2. Always recommend seeing a doctor for proper diagnosis
-3. Identify emergency situations and urge immediate medical attention
-4. Be empathetic and reassuring
-5. Ask clarifying questions when needed
-6. Use simple, understandable language
-7. Provide actionable next steps
+Important guidelines:
+- Ask one question at a time
+- Be empathetic and understanding
+- Use clear, simple language
+- Focus on gathering detailed symptom information
+- Note any red flags that require immediate medical attention`;
 
-RESPONSE FORMAT:
-Provide structured responses with:
-- Summary of symptoms
-- Possible conditions (with probabilities if relevant)
-- Severity level (mild/moderate/severe)
-- Urgency (normal/high/emergency)
-- Self-care recommendations
-- When to see a doctor
-- Red flags to watch for
-`;
+const INITIAL_QUESTION = `Hello! I'm here to help understand your symptoms better. 
 
-const generateInitialAssessmentPrompt = (symptoms, patientInfo) => {
-  return `
-Patient Information:
-- Age: ${patientInfo.age || 'Not provided'}
-- Gender: ${patientInfo.gender || 'Not provided'}
-- Medical History: ${patientInfo.medicalHistory?.join(', ') || 'None reported'}
-- Allergies: ${patientInfo.allergies?.join(', ') || 'None reported'}
+To start, could you please describe what's been bothering you? Please share:
+- What symptoms you're experiencing
+- When they started
+- How severe they are (mild, moderate, severe)`;
 
-Reported Symptoms:
-${symptoms.map((s, i) => `${i + 1}. ${s}`).join('\n')}
-
-Duration: ${patientInfo.duration || 'Not specified'}
-Severity (1-10): ${patientInfo.severity || 'Not specified'}
-
-Please provide a comprehensive assessment including:
-1. Analysis of the symptoms
-2. Possible conditions (do NOT diagnose, only suggest possibilities)
-3. Severity assessment
-4. Urgency level
-5. Self-care recommendations
-6. When to seek medical attention
-7. Any follow-up questions needed
-
-Format your response as JSON with these fields:
-{
-  "summary": "Brief summary",
-  "possibleConditions": ["condition1", "condition2"],
-  "severity": "mild/moderate/severe",
-  "urgency": "normal/high/emergency",
-  "analysis": "Detailed analysis",
-  "selfCare": ["recommendation1", "recommendation2"],
-  "seekCareIf": ["red flag1", "red flag2"],
-  "followUpQuestions": ["question1", "question2"],
-  "recommendedSpecialties": ["specialty1", "specialty2"]
-}
-`;
+const FOLLOW_UP_QUESTIONS = {
+  duration: "How long have you been experiencing these symptoms?",
+  severity: "On a scale of 1-10, how would you rate the severity? (1 being mild, 10 being severe)",
+  frequency: "How often do these symptoms occur? (Constant, intermittent, only at certain times)",
+  triggers: "Have you noticed anything that makes the symptoms better or worse?",
+  history: "Have you experienced similar symptoms before?",
+  medication: "Are you currently taking any medications?",
+  allergies: "Do you have any known allergies?",
+  lifestyle: "Have there been any recent changes in your lifestyle, diet, or stress levels?"
 };
 
-const generateFollowUpPrompt = (conversationHistory, newSymptom) => {
-  return `
-Based on our previous conversation and the new information provided:
+const ASSESSMENT_PROMPT_TEMPLATE = (symptoms, conversationHistory) => {
+  return `Based on the following patient information, generate the next appropriate question to gather more details:
 
-New Information: ${newSymptom}
+Patient Symptoms: ${JSON.stringify(symptoms)}
 
-Previous Context: ${JSON.stringify(conversationHistory, null, 2)}
+Conversation History:
+${conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n')}
 
-Please:
-1. Acknowledge the new information
-2. Update your assessment if needed
-3. Ask any additional clarifying questions
-4. Provide updated recommendations
+Generate a single, clear follow-up question that:
+1. Helps gather more specific information about the symptoms
+2. Is relevant to what the patient has already shared
+3. Uses empathetic and professional language
+4. Avoids medical jargon
 
-Keep your response conversational and empathetic.
-`;
+Respond with ONLY the question, no additional text.`;
 };
 
-const generateEmergencyCheckPrompt = (symptoms) => {
-  return `
-Analyze these symptoms for emergency indicators:
-${symptoms.join(', ')}
+const SUMMARY_PROMPT_TEMPLATE = (conversationHistory) => {
+  return `Based on the following conversation with a patient, create a comprehensive symptom summary:
 
-Determine if this requires immediate emergency care (911/ER).
+Conversation:
+${conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n')}
 
-Respond with JSON:
-{
-  "isEmergency": true/false,
-  "reason": "explanation",
-  "action": "specific action to take",
-  "urgencyLevel": "normal/high/emergency"
-}
-`;
+Create a structured summary including:
+1. Chief Complaint
+2. Symptom Details (what, when, severity, duration, frequency)
+3. Aggravating/Relieving Factors
+4. Associated Symptoms
+5. Medical History (if mentioned)
+6. Current Medications (if mentioned)
+7. Red Flags or Urgent Concerns
+
+Format the response as a clear, professional medical summary suitable for a doctor to review.`;
 };
 
-const generateSpecialtyRecommendationPrompt = (assessment) => {
-  return `
-Based on this medical assessment:
-${JSON.stringify(assessment, null, 2)}
+const SEVERITY_ASSESSMENT_PROMPT = (symptoms) => {
+  return `Based on the following symptoms, assess the urgency level:
 
-Recommend the top 3 medical specialties the patient should consider seeing, ranked by relevance.
+Symptoms: ${JSON.stringify(symptoms)}
 
-Respond with JSON:
-{
-  "specialties": [
-    {
-      "name": "Specialty name",
-      "relevance": "high/medium/low",
-      "reason": "Why this specialty"
-    }
-  ]
-}
-`;
-};
+Classify as one of:
+- EMERGENCY: Life-threatening, needs immediate attention
+- URGENT: Serious, should see doctor within 24 hours
+- MODERATE: Should schedule appointment within a few days
+- LOW: Can wait for routine appointment
 
-const generateSymptomClarificationPrompt = (symptom) => {
-  return `
-The patient mentioned: "${symptom}"
-
-Generate 3-5 clarifying questions to better understand this symptom. Questions should cover:
-- Location/area affected
-- Severity/intensity
-- Duration and frequency
-- Aggravating/relieving factors
-- Associated symptoms
-
-Respond with JSON:
-{
-  "questions": ["question1", "question2", ...]
-}
-`;
-};
-
-const generateDifferentialDiagnosisPrompt = (symptoms, patientInfo) => {
-  return `
-Generate a differential diagnosis list (NOT a diagnosis) based on:
-
-Symptoms: ${symptoms.join(', ')}
-Patient Info: Age ${patientInfo.age}, Gender ${patientInfo.gender}
-Medical History: ${patientInfo.medicalHistory?.join(', ') || 'None'}
-
-Provide 3-5 possible conditions ranked by likelihood, with:
-- Condition name
-- Likelihood (%)
-- Key symptoms that match
-- Key symptoms that don't match
-
-IMPORTANT: Emphasize this is NOT a diagnosis and professional evaluation is needed.
-
-Respond with JSON:
-{
-  "disclaimer": "This is not a diagnosis...",
-  "possibleConditions": [
-    {
-      "condition": "Name",
-      "likelihood": 0-100,
-      "matchingSymptoms": [],
-      "notMatchingSymptoms": [],
-      "notes": "Additional context"
-    }
-  ]
-}
-`;
-};
-
-const generateTreatmentAdvicePrompt = (condition, severity) => {
-  return `
-For a patient with possible ${condition} at ${severity} severity:
-
-Provide:
-1. Home care recommendations
-2. Over-the-counter remedies (if appropriate)
-3. Lifestyle modifications
-4. Warning signs
-5. Timeline for improvement
-6. When to follow up with doctor
-
-IMPORTANT: Do not prescribe medications. Only suggest OTC options if appropriate.
-
-Keep advice practical, safe, and conservative.
-`;
-};
-
-const generateMentalHealthAssessmentPrompt = (symptoms) => {
-  return `
-The patient is experiencing: ${symptoms.join(', ')}
-
-These may indicate mental health concerns. Provide:
-1. Gentle acknowledgment
-2. Mental health screening questions
-3. Resources and support options
-4. Professional help recommendations
-5. Crisis resources if needed
-
-Be extremely sensitive, supportive, and non-judgmental.
-Include crisis hotline numbers if symptoms suggest crisis.
-`;
+Respond with ONLY the classification level and a brief one-sentence reason.
+Format: "LEVEL: reason"`;
 };
 
 module.exports = {
   SYSTEM_PROMPT,
-  generateInitialAssessmentPrompt,
-  generateFollowUpPrompt,
-  generateEmergencyCheckPrompt,
-  generateSpecialtyRecommendationPrompt,
-  generateSymptomClarificationPrompt,
-  generateDifferentialDiagnosisPrompt,
-  generateTreatmentAdvicePrompt,
-  generateMentalHealthAssessmentPrompt,
+  INITIAL_QUESTION,
+  FOLLOW_UP_QUESTIONS,
+  ASSESSMENT_PROMPT_TEMPLATE,
+  SUMMARY_PROMPT_TEMPLATE,
+  SEVERITY_ASSESSMENT_PROMPT
 };

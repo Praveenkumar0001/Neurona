@@ -1,152 +1,119 @@
 const axios = require('axios');
-const logger = require('../../utils/logger');
 
 class LLMClient {
   constructor() {
-    this.apiKey = process.env.OPENAI_API_KEY || process.env.LLM_API_KEY;
-    this.apiUrl = process.env.LLM_API_URL || 'https://api.openai.com/v1/chat/completions';
-    this.model = process.env.LLM_MODEL || 'gpt-4';
-    this.maxTokens = parseInt(process.env.LLM_MAX_TOKENS) || 1000;
-    this.temperature = parseFloat(process.env.LLM_TEMPERATURE) || 0.7;
-  }
-
-  async generateCompletion(messages, options = {}) {
-    try {
-      const response = await axios.post(
-        this.apiUrl,
-        {
-          model: options.model || this.model,
-          messages: messages,
-          max_tokens: options.maxTokens || this.maxTokens,
-          temperature: options.temperature || this.temperature,
-          top_p: options.topP || 1,
-          frequency_penalty: options.frequencyPenalty || 0,
-          presence_penalty: options.presencePenalty || 0,
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.apiKey}`,
-          },
-          timeout: 30000, // 30 seconds
-        }
-      );
-
-      logger.info('LLM completion generated', {
-        model: options.model || this.model,
-        tokens: response.data.usage?.total_tokens,
-      });
-
-      return {
-        success: true,
-        content: response.data.choices[0].message.content,
-        usage: response.data.usage,
-        model: response.data.model,
-      };
-    } catch (error) {
-      logger.error('LLM completion error', {
-        error: error.message,
-        response: error.response?.data,
-      });
-
-      return {
-        success: false,
-        error: error.message,
-        details: error.response?.data,
-      };
+    this.provider = process.env.LLM_PROVIDER || 'openai'; // 'openai', 'anthropic', 'groq'
+    this.apiKey = process.env.LLM_API_KEY;
+    this.model = process.env.LLM_MODEL || 'gpt-3.5-turbo';
+    
+    if (!this.apiKey) {
+      throw new Error('LLM_API_KEY is not set in environment variables');
     }
+
+    // Set up API endpoints based on provider
+    this.endpoints = {
+      openai: 'https://api.openai.com/v1/chat/completions',
+      anthropic: 'https://api.anthropic.com/v1/messages',
+      groq: 'https://api.groq.com/openai/v1/chat/completions'
+    };
   }
 
-  async streamCompletion(messages, onChunk, options = {}) {
+  async sendMessage(messages, options = {}) {
     try {
-      const response = await axios.post(
-        this.apiUrl,
-        {
-          model: options.model || this.model,
-          messages: messages,
-          max_tokens: options.maxTokens || this.maxTokens,
-          temperature: options.temperature || this.temperature,
-          stream: true,
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.apiKey}`,
-          },
-          responseType: 'stream',
-        }
-      );
+      const {
+        temperature = 0.7,
+        maxTokens = 1000,
+        stream = false
+      } = options;
 
-      let fullContent = '';
-
-      response.data.on('data', (chunk) => {
-        const lines = chunk.toString().split('\n').filter(line => line.trim());
+      switch (this.provider) {
+        case 'openai':
+        case 'groq':
+          return await this.sendOpenAIRequest(messages, { temperature, maxTokens, stream });
         
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            if (data === '[DONE]') continue;
-            
-            try {
-              const parsed = JSON.parse(data);
-              const content = parsed.choices[0]?.delta?.content;
-              if (content) {
-                fullContent += content;
-                onChunk(content);
-              }
-            } catch (e) {
-              // Skip parsing errors
-            }
-          }
-        }
-      });
-
-      return new Promise((resolve, reject) => {
-        response.data.on('end', () => {
-          logger.info('LLM stream completed');
-          resolve({ success: true, content: fullContent });
-        });
+        case 'anthropic':
+          return await this.sendAnthropicRequest(messages, { temperature, maxTokens });
         
-        response.data.on('error', (error) => {
-          logger.error('LLM stream error', { error: error.message });
-          reject(error);
-        });
-      });
+        default:
+          throw new Error(`Unsupported LLM provider: ${this.provider}`);
+      }
     } catch (error) {
-      logger.error('LLM stream error', { error: error.message });
-      throw error;
+      console.error('LLM Client Error:', error.message);
+      throw new Error(`Failed to get response from LLM: ${error.message}`);
     }
   }
 
-  async generateEmbedding(text) {
-    try {
-      const response = await axios.post(
-        'https://api.openai.com/v1/embeddings',
-        {
-          model: 'text-embedding-ada-002',
-          input: text,
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.apiKey}`,
-          },
+  async sendOpenAIRequest(messages, options) {
+    const response = await axios.post(
+      this.endpoints[this.provider],
+      {
+        model: this.model,
+        messages: messages,
+        temperature: options.temperature,
+        max_tokens: options.maxTokens,
+        stream: options.stream
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.apiKey}`
         }
-      );
+      }
+    );
 
-      return {
-        success: true,
-        embedding: response.data.data[0].embedding,
-        usage: response.data.usage,
-      };
-    } catch (error) {
-      logger.error('LLM embedding error', { error: error.message });
-      return {
-        success: false,
-        error: error.message,
-      };
-    }
+    return {
+      content: response.data.choices[0].message.content,
+      usage: response.data.usage,
+      model: response.data.model
+    };
+  }
+
+  async sendAnthropicRequest(messages, options) {
+    // Convert OpenAI format to Anthropic format
+    const anthropicMessages = messages.map(msg => ({
+      role: msg.role === 'assistant' ? 'assistant' : 'user',
+      content: msg.content
+    }));
+
+    const response = await axios.post(
+      this.endpoints.anthropic,
+      {
+        model: this.model,
+        messages: anthropicMessages,
+        max_tokens: options.maxTokens,
+        temperature: options.temperature
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': this.apiKey,
+          'anthropic-version': '2023-06-01'
+        }
+      }
+    );
+
+    return {
+      content: response.data.content[0].text,
+      usage: response.data.usage,
+      model: response.data.model
+    };
+  }
+
+  // Helper method to create a simple prompt
+  createPrompt(systemMessage, userMessage) {
+    return [
+      { role: 'system', content: systemMessage },
+      { role: 'user', content: userMessage }
+    ];
+  }
+
+  // Helper method to add conversation history
+  createConversation(systemMessage, conversationHistory) {
+    return [
+      { role: 'system', content: systemMessage },
+      ...conversationHistory
+    ];
   }
 }
 
-module.exports = new LLMClient();
+module.exports = LLMClient;

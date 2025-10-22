@@ -1,223 +1,263 @@
-const llmService = require('./llmService');
-const { sendSuccess, sendValidationError } = require('../utils/errorHandler');
-const { validateSymptomData } = require('../utils/validators');
-const logger = require('../utils/logger');
+// LLM Controller - Handle HTTP requests
+const LLMService = require('./llmService');
+const SymptomReport = require('../models/SymptomReport');
 
-// Chat with LLM
-exports.chat = async (req, res, next) => {
-  try {
-    const { message, conversationHistory = [], context = {} } = req.body;
-
-    if (!message || message.trim().length === 0) {
-      return sendValidationError(res, { message: 'Message is required' });
-    }
-
-    const result = await llmService.generateChatResponse(
-      message,
-      conversationHistory,
-      context
-    );
-
-    if (!result.success) {
-      return res.status(500).json({
-        success: false,
-        error: 'Failed to generate response',
-      });
-    }
-
-    logger.info('LLM chat response sent', { userId: req.user?.userId });
-
-    sendSuccess(res, {
-      reply: result.message,
-      entities: result.entities,
-      tokens: result.tokens,
-    });
-  } catch (error) {
-    logger.error('Error in LLM chat', { error: error.message });
-    next(error);
+class LLMController {
+  constructor() {
+    this.llmService = new LLMService();
   }
-};
 
-// Stream chat response
-exports.streamChat = async (req, res, next) => {
-  try {
-    const { message, conversationHistory = [] } = req.body;
+  /**
+   * Start a new conversation
+   * POST /api/llm/start
+   */
+  startConversation = async (req, res) => {
+    try {
+      const { userId } = req.user; // From auth middleware
 
-    if (!message || message.trim().length === 0) {
-      return sendValidationError(res, { message: 'Message is required' });
-    }
+      const initialQuestion = await this.llmService.getInitialQuestion();
 
-    // Set headers for SSE
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-
-    const onChunk = (chunk) => {
-      res.write(`data: ${JSON.stringify({ chunk })}\n\n`);
-    };
-
-    await llmService.streamChatResponse(message, conversationHistory, onChunk);
-
-    res.write('data: [DONE]\n\n');
-    res.end();
-
-    logger.info('LLM stream completed', { userId: req.user?.userId });
-  } catch (error) {
-    logger.error('Error in LLM stream', { error: error.message });
-    res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
-    res.end();
-  }
-};
-
-// Assess symptoms
-exports.assessSymptoms = async (req, res, next) => {
-  try {
-    const { symptoms, duration, severity, conversationHistory = [] } = req.body;
-
-    // Validation
-    const errors = validateSymptomData({ symptoms, duration, severity });
-    if (errors) {
-      return sendValidationError(res, errors);
-    }
-
-    const patientInfo = {
-      age: req.user?.age,
-      gender: req.user?.gender,
-      medicalHistory: req.user?.medicalHistory || [],
-      allergies: req.user?.allergies || [],
-      duration,
-      severity,
-    };
-
-    const result = await llmService.generateMedicalAssessment(
-      symptoms,
-      patientInfo,
-      conversationHistory
-    );
-
-    if (!result.success) {
-      return res.status(500).json({
-        success: false,
-        error: 'Failed to generate assessment',
+      // Optionally create a new symptom report session
+      const symptomReport = new SymptomReport({
+        user: userId,
+        conversationHistory: [],
+        status: 'in-progress',
+        startedAt: new Date()
       });
-    }
 
-    // If emergency
-    if (result.emergency) {
-      logger.warn('Emergency case detected', {
-        userId: req.user?.userId,
-        symptoms,
-      });
-      return res.status(200).json({
+      await symptomReport.save();
+
+      res.status(200).json({
         success: true,
-        emergency: true,
-        message: result.message,
+        data: {
+          sessionId: symptomReport._id,
+          ...initialQuestion
+        }
       });
-    }
-
-    logger.info('Medical assessment completed', {
-      userId: req.user?.userId,
-      urgency: result.assessment.urgency,
-    });
-
-    sendSuccess(res, {
-      assessment: result.assessment,
-      tokens: result.tokens,
-    });
-  } catch (error) {
-    logger.error('Error in symptom assessment', { error: error.message });
-    next(error);
-  }
-};
-
-// Get follow-up questions
-exports.getFollowUpQuestions = async (req, res, next) => {
-  try {
-    const { symptoms, context = {} } = req.body;
-
-    if (!symptoms || symptoms.length === 0) {
-      return sendValidationError(res, { symptoms: 'Symptoms are required' });
-    }
-
-    const result = await llmService.generateFollowUpQuestions(symptoms, context);
-
-    if (!result.success) {
-      return res.status(500).json({
+    } catch (error) {
+      console.error('Start conversation error:', error);
+      res.status(500).json({
         success: false,
-        error: 'Failed to generate questions',
+        message: 'Failed to start conversation',
+        error: error.message
       });
     }
+  };
 
-    logger.info('Follow-up questions generated', {
-      userId: req.user?.userId,
-      count: result.questions.length,
-    });
+  /**
+   * Send a message and get response
+   * POST /api/llm/message
+   */
+  sendMessage = async (req, res) => {
+    try {
+      const { sessionId, message } = req.body;
+      const { userId } = req.user;
 
-    sendSuccess(res, { questions: result.questions });
-  } catch (error) {
-    logger.error('Error generating follow-up questions', { error: error.message });
-    next(error);
-  }
-};
+      if (!sessionId || !message) {
+        return res.status(400).json({
+          success: false,
+          message: 'Session ID and message are required'
+        });
+      }
 
-// Get specialty recommendations
-exports.getSpecialtyRecommendations = async (req, res, next) => {
-  try {
-    const { assessment } = req.body;
+      // Find the symptom report
+      const symptomReport = await SymptomReport.findOne({
+        _id: sessionId,
+        user: userId
+      });
 
-    if (!assessment) {
-      return sendValidationError(res, { assessment: 'Assessment is required' });
-    }
+      if (!symptomReport) {
+        return res.status(404).json({
+          success: false,
+          message: 'Session not found'
+        });
+      }
 
-    const result = await llmService.getSpecialtyRecommendations(assessment);
+      // Add user message to history
+      symptomReport.conversationHistory.push({
+        role: 'user',
+        content: message,
+        timestamp: new Date()
+      });
 
-    if (!result.success) {
-      return res.status(500).json({
+      // Get AI response
+      const response = await this.llmService.processResponse(
+        message,
+        symptomReport.conversationHistory,
+        symptomReport.symptoms
+      );
+
+      // Add AI response to history
+      symptomReport.conversationHistory.push({
+        role: 'assistant',
+        content: response.message,
+        timestamp: new Date()
+      });
+
+      // Update symptom report
+      symptomReport.lastUpdated = new Date();
+      await symptomReport.save();
+
+      res.status(200).json({
+        success: true,
+        data: {
+          message: response.message,
+          sessionId: symptomReport._id,
+          messageCount: symptomReport.conversationHistory.length
+        }
+      });
+    } catch (error) {
+      console.error('Send message error:', error);
+      res.status(500).json({
         success: false,
-        error: 'Failed to get recommendations',
+        message: 'Failed to process message',
+        error: error.message
       });
     }
+  };
 
-    logger.info('Specialty recommendations generated', {
-      userId: req.user?.userId,
-      count: result.specialties.length,
-    });
+  /**
+   * Generate symptom summary
+   * POST /api/llm/summary
+   */
+  generateSummary = async (req, res) => {
+    try {
+      const { sessionId } = req.body;
+      const { userId } = req.user;
 
-    sendSuccess(res, { specialties: result.specialties });
-  } catch (error) {
-    logger.error('Error getting specialty recommendations', { error: error.message });
-    next(error);
-  }
-};
+      const symptomReport = await SymptomReport.findOne({
+        _id: sessionId,
+        user: userId
+      });
 
-// Get greeting message
-exports.getGreeting = async (req, res, next) => {
-  try {
-    const result = await llmService.generateGreeting();
+      if (!symptomReport) {
+        return res.status(404).json({
+          success: false,
+          message: 'Session not found'
+        });
+      }
 
-    sendSuccess(res, { message: result.message });
-  } catch (error) {
-    logger.error('Error generating greeting', { error: error.message });
-    sendSuccess(res, {
-      message: "Hello! I'm here to help you understand your symptoms. How can I assist you today?",
-    });
-  }
-};
+      // Generate summary
+      const summary = await this.llmService.generateSymptomSummary(
+        symptomReport.conversationHistory
+      );
 
-// Health check for LLM service
-exports.healthCheck = async (req, res) => {
-  try {
-    res.status(200).json({
-      success: true,
-      message: 'LLM service is operational',
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'LLM service error',
-    });
-  }
-};
+      // Generate severity assessment
+      const severityAssessment = await this.llmService.assessSeverity(
+        symptomReport.symptoms
+      );
 
-module.exports = exports;
+      // Extract structured data
+      const structuredData = await this.llmService.extractSymptomData(
+        symptomReport.conversationHistory
+      );
+
+      // Suggest specialties
+      const specialties = await this.llmService.suggestSpecialties(
+        structuredData,
+        symptomReport.conversationHistory
+      );
+
+      // Update symptom report
+      symptomReport.aiSummary = summary.summary;
+      symptomReport.urgencyLevel = severityAssessment.urgencyLevel;
+      symptomReport.structuredData = structuredData;
+      symptomReport.suggestedSpecialties = specialties;
+      symptomReport.status = 'completed';
+      symptomReport.completedAt = new Date();
+
+      await symptomReport.save();
+
+      res.status(200).json({
+        success: true,
+        data: {
+          summary: summary.summary,
+          urgency: severityAssessment,
+          structuredData,
+          specialties,
+          sessionId: symptomReport._id
+        }
+      });
+    } catch (error) {
+      console.error('Generate summary error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to generate summary',
+        error: error.message
+      });
+    }
+  };
+
+  /**
+   * Get conversation history
+   * GET /api/llm/conversation/:sessionId
+   */
+  getConversation = async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const { userId } = req.user;
+
+      const symptomReport = await SymptomReport.findOne({
+        _id: sessionId,
+        user: userId
+      }).select('conversationHistory status startedAt completedAt');
+
+      if (!symptomReport) {
+        return res.status(404).json({
+          success: false,
+          message: 'Conversation not found'
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        data: symptomReport
+      });
+    } catch (error) {
+      console.error('Get conversation error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to retrieve conversation',
+        error: error.message
+      });
+    }
+  };
+
+  /**
+   * Test LLM connection
+   * GET /api/llm/test
+   */
+  testConnection = async (req, res) => {
+    try {
+      const testMessage = 'Hello, this is a test message.';
+      const messages = [
+        { role: 'system', content: 'You are a helpful assistant.' },
+        { role: 'user', content: testMessage }
+      ];
+
+      const response = await this.llmService.llmClient.sendMessage(messages, {
+        temperature: 0.7,
+        maxTokens: 50
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'LLM connection successful',
+        data: {
+          provider: this.llmService.llmClient.provider,
+          model: this.llmService.llmClient.model,
+          testResponse: response.content
+        }
+      });
+    } catch (error) {
+      console.error('LLM test error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'LLM connection failed',
+        error: error.message
+      });
+    }
+  };
+}
+
+module.exports = new LLMController();

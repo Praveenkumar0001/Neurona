@@ -1,155 +1,187 @@
+// Custom React Hook for LLM operations
 import { useState, useCallback } from 'react';
 import llmService from '../services/llmService';
+import { useToast } from './useToast';
 
 export const useLLM = () => {
   const [loading, setLoading] = useState(false);
-  const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState(null);
+  const [sessionId, setSessionId] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [summary, setSummary] = useState(null);
+  const { showToast } = useToast();
 
-  // Send regular chat message
-  const sendMessage = useCallback(async (message, conversationHistory = [], context = {}) => {
+  /**
+   * Start a new conversation
+   */
+  const startConversation = useCallback(async () => {
     setLoading(true);
     setError(null);
-
+    
     try {
-      const response = await llmService.sendChatMessage(message, conversationHistory, context);
+      const response = await llmService.startConversation();
       
-      if (!response.success) {
-        throw new Error(response.error || 'Failed to get response');
+      if (response.success) {
+        setSessionId(response.data.sessionId);
+        setMessages([{
+          role: 'assistant',
+          content: response.data.message,
+          timestamp: new Date()
+        }]);
+        return response.data;
       }
-
-      return response.data;
     } catch (err) {
       setError(err.message);
+      showToast('Failed to start conversation', 'error');
       throw err;
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showToast]);
 
-  // Stream chat message
-  const streamMessage = useCallback(async (message, conversationHistory, onChunk, onComplete) => {
-    setStreaming(true);
-    setError(null);
-
-    try {
-      await llmService.streamChatMessage(
-        message,
-        conversationHistory,
-        onChunk,
-        (fullMessage) => {
-          setStreaming(false);
-          onComplete(fullMessage);
-        },
-        (errorMsg) => {
-          setError(errorMsg);
-          setStreaming(false);
-        }
-      );
-    } catch (err) {
-      setError(err.message);
-      setStreaming(false);
-      throw err;
+  /**
+   * Send a message
+   */
+  const sendMessage = useCallback(async (message) => {
+    if (!sessionId) {
+      showToast('No active session', 'error');
+      return;
     }
-  }, []);
 
-  // Assess symptoms
-  const assessSymptoms = useCallback(async (symptoms, duration, severity, conversationHistory = []) => {
     setLoading(true);
     setError(null);
 
+    // Optimistically add user message
+    const userMessage = {
+      role: 'user',
+      content: message,
+      timestamp: new Date()
+    };
+    setMessages(prev => [...prev, userMessage]);
+
     try {
-      const response = await llmService.assessSymptoms(
-        symptoms,
-        duration,
-        severity,
-        conversationHistory
-      );
-
-      if (!response.success) {
-        throw new Error(response.error || 'Assessment failed');
+      const response = await llmService.sendMessage(sessionId, message);
+      
+      if (response.success) {
+        // Add AI response
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: response.data.message,
+          timestamp: new Date()
+        }]);
+        return response.data;
       }
-
-      // Check for emergency
-      if (response.emergency) {
-        return {
-          emergency: true,
-          message: response.message,
-        };
-      }
-
-      return response.data;
     } catch (err) {
       setError(err.message);
+      // Remove optimistic user message on error
+      setMessages(prev => prev.slice(0, -1));
+      showToast('Failed to send message', 'error');
       throw err;
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [sessionId, showToast]);
 
-  // Get follow-up questions
-  const getFollowUpQuestions = useCallback(async (symptoms, context = {}) => {
+  /**
+   * Generate summary
+   */
+  const generateSummary = useCallback(async () => {
+    if (!sessionId) {
+      showToast('No active session', 'error');
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
     try {
-      const response = await llmService.getFollowUpQuestions(symptoms, context);
-
-      if (!response.success) {
-        throw new Error(response.error || 'Failed to get questions');
+      const response = await llmService.generateSummary(sessionId);
+      
+      if (response.success) {
+        setSummary(response.data);
+        showToast('Summary generated successfully', 'success');
+        return response.data;
       }
-
-      return response.data.questions;
     } catch (err) {
       setError(err.message);
-      return [];
+      showToast('Failed to generate summary', 'error');
+      throw err;
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [sessionId, showToast]);
 
-  // Get specialty recommendations
-  const getSpecialtyRecommendations = useCallback(async (assessment) => {
+  /**
+   * Load conversation history
+   */
+  const loadConversation = useCallback(async (id) => {
     setLoading(true);
     setError(null);
 
     try {
-      const response = await llmService.getSpecialtyRecommendations(assessment);
-
-      if (!response.success) {
-        throw new Error(response.error || 'Failed to get recommendations');
+      const response = await llmService.getConversation(id);
+      
+      if (response.success) {
+        setSessionId(id);
+        setMessages(response.data.conversationHistory || []);
+        return response.data;
       }
-
-      return response.data.specialties;
     } catch (err) {
       setError(err.message);
-      return [];
+      showToast('Failed to load conversation', 'error');
+      throw err;
     } finally {
       setLoading(false);
     }
+  }, [showToast]);
+
+  /**
+   * Reset conversation
+   */
+  const resetConversation = useCallback(() => {
+    setSessionId(null);
+    setMessages([]);
+    setSummary(null);
+    setError(null);
   }, []);
 
-  // Get greeting
-  const getGreeting = useCallback(async () => {
+  /**
+   * Test LLM connection
+   */
+  const testConnection = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
     try {
-      const response = await llmService.getGreeting();
-      return response.data.message;
+      const response = await llmService.testConnection();
+      
+      if (response.success) {
+        showToast('LLM connection successful', 'success');
+        return response.data;
+      }
     } catch (err) {
-      return "Hello! I'm here to help you understand your symptoms. How can I assist you today?";
+      setError(err.message);
+      showToast('LLM connection failed', 'error');
+      throw err;
+    } finally {
+      setLoading(false);
     }
-  }, []);
+  }, [showToast]);
 
   return {
+    // State
     loading,
-    streaming,
     error,
+    sessionId,
+    messages,
+    summary,
+    
+    // Actions
+    startConversation,
     sendMessage,
-    streamMessage,
-    assessSymptoms,
-    getFollowUpQuestions,
-    getSpecialtyRecommendations,
-    getGreeting,
+    generateSummary,
+    loadConversation,
+    resetConversation,
+    testConnection
   };
 };
-
-export default useLLM;

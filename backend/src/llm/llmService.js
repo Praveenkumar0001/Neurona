@@ -1,246 +1,224 @@
-const llmClient = require('./utils/llmClient');
-const {
-  formatConversationHistory,
-  extractMedicalEntities,
-  sanitizeUserInput,
-  formatAssessmentForPatient,
-  isEmergencyCase,
-  generateDisclaimer,
-} = require('./utils/llmHelpers');
+// LLM Service - Business logic for LLM operations
+const LLMClient = require('./utils/llmClient');
 const {
   SYSTEM_PROMPT,
-  generateInitialAssessmentPrompt,
-  generateFollowUpPrompt,
-  generateEmergencyCheckPrompt,
-  generateSpecialtyRecommendationPrompt,
+  INITIAL_QUESTION,
+  ASSESSMENT_PROMPT_TEMPLATE,
+  SUMMARY_PROMPT_TEMPLATE,
+  SEVERITY_ASSESSMENT_PROMPT
 } = require('./prompts/assessmentPrompt');
-const {
-  CONVERSATIONAL_SYSTEM_PROMPT,
-  generateGreetingPrompt,
-  generateEmpatheticResponsePrompt,
-} = require('./prompts/responsePrompt');
-const logger = require('../utils/logger');
 
 class LLMService {
-  // Generate initial medical assessment
-  async generateMedicalAssessment(symptoms, patientInfo, conversationHistory = []) {
+  constructor() {
+    this.llmClient = new LLMClient();
+  }
+
+  /**
+   * Get initial greeting and first question
+   */
+  async getInitialQuestion() {
+    return {
+      message: INITIAL_QUESTION,
+      questionType: 'initial',
+      options: null
+    };
+  }
+
+  /**
+   * Process user response and generate next question
+   */
+  async processResponse(userMessage, conversationHistory = [], symptoms = {}) {
     try {
-      const sanitizedSymptoms = symptoms.map(s => sanitizeUserInput(s));
-      
-      // Check for emergency
-      const emergency = isEmergencyCase(sanitizedSymptoms, patientInfo);
-      if (emergency) {
-        return {
-          success: true,
-          emergency: true,
-          message: '🚨 EMERGENCY: Based on your symptoms, you should seek immediate medical attention. Call 911 or go to the nearest emergency room.',
-          assessment: null,
-        };
-      }
+      // Build the conversation context
+      const messages = this.llmClient.createConversation(
+        SYSTEM_PROMPT,
+        [
+          ...conversationHistory,
+          { role: 'user', content: userMessage }
+        ]
+      );
 
-      const messages = [
-        { role: 'system', content: SYSTEM_PROMPT },
-        ...formatConversationHistory(conversationHistory),
-        { 
-          role: 'user', 
-          content: generateInitialAssessmentPrompt(sanitizedSymptoms, patientInfo) 
-        },
-      ];
-
-      const result = await llmClient.generateCompletion(messages, {
+      // Get AI response
+      const response = await this.llmClient.sendMessage(messages, {
         temperature: 0.7,
-        maxTokens: 1500,
-      });
-
-      if (!result.success) {
-        throw new Error(result.error);
-      }
-
-      // Parse assessment
-      let assessment;
-      try {
-        assessment = JSON.parse(result.content);
-      } catch {
-        assessment = {
-          summary: result.content,
-          possibleConditions: [],
-          severity: 'moderate',
-          urgency: 'normal',
-        };
-      }
-
-      assessment.disclaimer = generateDisclaimer();
-
-      logger.info('Medical assessment generated', {
-        symptoms: sanitizedSymptoms.length,
-        urgency: assessment.urgency,
+        maxTokens: 500
       });
 
       return {
-        success: true,
-        assessment: formatAssessmentForPatient(assessment),
-        tokens: result.usage,
+        message: response.content,
+        questionType: 'follow-up',
+        usage: response.usage
       };
     } catch (error) {
-      logger.error('Error generating medical assessment', { error: error.message });
-      return {
-        success: false,
-        error: error.message,
-      };
-    }
-  }
-
-  // Generate conversational response
-  async generateChatResponse(userMessage, conversationHistory = [], context = {}) {
-    try {
-      const sanitized = sanitizeUserInput(userMessage);
-      const entities = extractMedicalEntities(sanitized);
-
-      const messages = [
-        { role: 'system', content: CONVERSATIONAL_SYSTEM_PROMPT },
-        ...formatConversationHistory(conversationHistory),
-        { role: 'user', content: sanitized },
-      ];
-
-      const result = await llmClient.generateCompletion(messages, {
-        temperature: 0.8,
-        maxTokens: 500,
-      });
-
-      if (!result.success) {
-        throw new Error(result.error);
-      }
-
-      logger.info('Chat response generated', { entities: entities.symptoms.length });
-
-      return {
-        success: true,
-        message: result.content,
-        entities,
-        tokens: result.usage,
-      };
-    } catch (error) {
-      logger.error('Error generating chat response', { error: error.message });
-      return {
-        success: false,
-        error: error.message,
-      };
-    }
-  }
-
-  // Stream chat response for real-time
-  async streamChatResponse(userMessage, conversationHistory, onChunk) {
-    try {
-      const sanitized = sanitizeUserInput(userMessage);
-
-      const messages = [
-        { role: 'system', content: CONVERSATIONAL_SYSTEM_PROMPT },
-        ...formatConversationHistory(conversationHistory),
-        { role: 'user', content: sanitized },
-      ];
-
-      const result = await llmClient.streamCompletion(messages, onChunk, {
-        temperature: 0.8,
-        maxTokens: 500,
-      });
-
-      return result;
-    } catch (error) {
-      logger.error('Error streaming chat response', { error: error.message });
+      console.error('Error processing response:', error);
       throw error;
     }
   }
 
-  // Get follow-up questions
-  async generateFollowUpQuestions(symptoms, context) {
+  /**
+   * Generate follow-up question based on context
+   */
+  async generateFollowUpQuestion(symptoms, conversationHistory) {
     try {
-      const messages = [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { 
-          role: 'user', 
-          content: `Based on these symptoms: ${symptoms.join(', ')}, generate 3 important follow-up questions to better assess the condition. Return as JSON array: {"questions": [...]}`
-        },
-      ];
+      const prompt = ASSESSMENT_PROMPT_TEMPLATE(symptoms, conversationHistory);
+      const messages = this.llmClient.createPrompt(SYSTEM_PROMPT, prompt);
 
-      const result = await llmClient.generateCompletion(messages, {
+      const response = await this.llmClient.sendMessage(messages, {
         temperature: 0.7,
-        maxTokens: 300,
+        maxTokens: 200
       });
 
-      if (!result.success) {
-        throw new Error(result.error);
-      }
-
-      const parsed = JSON.parse(result.content);
       return {
-        success: true,
-        questions: parsed.questions || [],
+        message: response.content.trim(),
+        questionType: 'follow-up'
       };
     } catch (error) {
-      logger.error('Error generating follow-up questions', { error: error.message });
-      return {
-        success: false,
-        error: error.message,
-        questions: [],
-      };
+      console.error('Error generating follow-up question:', error);
+      throw error;
     }
   }
 
-  // Get specialty recommendations
-  async getSpecialtyRecommendations(assessment) {
+  /**
+   * Generate symptom summary for doctor
+   */
+  async generateSymptomSummary(conversationHistory) {
     try {
-      const messages = [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: generateSpecialtyRecommendationPrompt(assessment) },
-      ];
+      const prompt = SUMMARY_PROMPT_TEMPLATE(conversationHistory);
+      const messages = this.llmClient.createPrompt(
+        'You are a medical documentation assistant. Create clear, professional symptom summaries.',
+        prompt
+      );
 
-      const result = await llmClient.generateCompletion(messages, {
-        temperature: 0.6,
-        maxTokens: 400,
+      const response = await this.llmClient.sendMessage(messages, {
+        temperature: 0.5,
+        maxTokens: 1000
       });
 
-      if (!result.success) {
-        throw new Error(result.error);
-      }
-
-      const parsed = JSON.parse(result.content);
       return {
-        success: true,
-        specialties: parsed.specialties || [],
+        summary: response.content,
+        generatedAt: new Date()
       };
     } catch (error) {
-      logger.error('Error getting specialty recommendations', { error: error.message });
-      return {
-        success: false,
-        error: error.message,
-      };
+      console.error('Error generating summary:', error);
+      throw error;
     }
   }
 
-  // Generate greeting message
-  async generateGreeting() {
+  /**
+   * Assess symptom severity and urgency
+   */
+  async assessSeverity(symptoms) {
     try {
-      const messages = [
-        { role: 'system', content: CONVERSATIONAL_SYSTEM_PROMPT },
-        { role: 'user', content: generateGreetingPrompt() },
-      ];
+      const prompt = SEVERITY_ASSESSMENT_PROMPT(symptoms);
+      const messages = this.llmClient.createPrompt(
+        'You are a medical triage assistant. Assess symptom urgency accurately.',
+        prompt
+      );
 
-      const result = await llmClient.generateCompletion(messages, {
-        temperature: 0.9,
-        maxTokens: 150,
+      const response = await this.llmClient.sendMessage(messages, {
+        temperature: 0.3,
+        maxTokens: 100
       });
 
+      // Parse response format "LEVEL: reason"
+      const [level, ...reasonParts] = response.content.split(':');
+      const reason = reasonParts.join(':').trim();
+
       return {
-        success: true,
-        message: result.content,
+        urgencyLevel: level.trim(),
+        reason: reason,
+        assessedAt: new Date()
       };
     } catch (error) {
-      return {
-        success: false,
-        message: "Hello! I'm here to help you understand your symptoms. How can I assist you today?",
-      };
+      console.error('Error assessing severity:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Extract structured data from conversation
+   */
+  async extractSymptomData(conversationHistory) {
+    try {
+      const prompt = `Extract structured symptom information from this conversation:
+
+${conversationHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n')}
+
+Return a JSON object with:
+{
+  "chiefComplaint": "main symptom",
+  "duration": "how long",
+  "severity": "1-10 scale",
+  "location": "body part if applicable",
+  "characteristics": ["list", "of", "descriptors"],
+  "associatedSymptoms": ["other", "symptoms"],
+  "redFlags": ["urgent", "concerns"]
+}`;
+
+      const messages = this.llmClient.createPrompt(
+        'Extract structured medical data from conversations. Respond ONLY with valid JSON.',
+        prompt
+      );
+
+      const response = await this.llmClient.sendMessage(messages, {
+        temperature: 0.3,
+        maxTokens: 500
+      });
+
+      // Parse JSON response
+      const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]);
+      }
+
+      throw new Error('Failed to extract structured data');
+    } catch (error) {
+      console.error('Error extracting symptom data:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Suggest relevant specialties based on symptoms
+   */
+  async suggestSpecialties(symptoms, conversationHistory) {
+    try {
+      const prompt = `Based on these symptoms and conversation, suggest the most relevant medical specialties:
+
+Symptoms: ${JSON.stringify(symptoms)}
+Recent conversation: ${conversationHistory.slice(-3).map(m => m.content).join('. ')}
+
+Respond with a JSON array of up to 3 specialties in order of relevance:
+[
+  {
+    "specialty": "specialty name",
+    "relevance": "why this specialty is relevant",
+    "priority": 1-3
+  }
+]`;
+
+      const messages = this.llmClient.createPrompt(
+        'You are a medical specialty recommendation system. Respond ONLY with valid JSON.',
+        prompt
+      );
+
+      const response = await this.llmClient.sendMessage(messages, {
+        temperature: 0.4,
+        maxTokens: 400
+      });
+
+      // Parse JSON response
+      const jsonMatch = response.content.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]);
+      }
+
+      return [];
+    } catch (error) {
+      console.error('Error suggesting specialties:', error);
+      return [];
     }
   }
 }
 
-module.exports = new LLMService();
+module.exports = LLMService;

@@ -1,34 +1,69 @@
+// LLM Routes
 const express = require('express');
 const router = express.Router();
 const llmController = require('../llm/llmController');
-const authMiddleware = require('../middleware/auth.middleware');
-const { apiLimiter } = require('../middleware/rateLimit.middleware');
+const { protect } = require('../middleware/auth.middleware');
+const { validateRequest } = require('../middleware/validation.middleware');
+const { body, param } = require('express-validator');
 
-// Apply authentication middleware to all routes
-router.use(authMiddleware);
+// All routes require authentication
+router.use(protect);
 
-// Apply rate limiting
-router.use(apiLimiter);
+/**
+ * @route   POST /api/llm/start
+ * @desc    Start a new symptom assessment conversation
+ * @access  Private
+ */
+router.post('/start', llmController.startConversation);
 
-// POST /api/llm/chat - Chat with LLM
-router.post('/chat', llmController.chat);
+/**
+ * @route   POST /api/llm/message
+ * @desc    Send a message and get AI response
+ * @access  Private
+ */
+router.post(
+  '/message',
+  [
+    body('sessionId').notEmpty().withMessage('Session ID is required'),
+    body('message').notEmpty().withMessage('Message is required').trim()
+  ],
+  validateRequest,
+  llmController.sendMessage
+);
 
-// POST /api/llm/stream - Stream chat response
-router.post('/stream', llmController.streamChat);
+/**
+ * @route   POST /api/llm/summary
+ * @desc    Generate symptom summary
+ * @access  Private
+ */
+router.post(
+  '/summary',
+  [
+    body('sessionId').notEmpty().withMessage('Session ID is required')
+  ],
+  validateRequest,
+  llmController.generateSummary
+);
 
-// POST /api/llm/assess - Assess symptoms
-router.post('/assess', llmController.assessSymptoms);
+/**
+ * @route   GET /api/llm/conversation/:sessionId
+ * @desc    Get conversation history
+ * @access  Private
+ */
+router.get(
+  '/conversation/:sessionId',
+  [
+    param('sessionId').isMongoId().withMessage('Invalid session ID')
+  ],
+  validateRequest,
+  llmController.getConversation
+);
 
-// POST /api/llm/follow-up - Get follow-up questions
-router.post('/follow-up', llmController.getFollowUpQuestions);
-
-// POST /api/llm/specialties - Get specialty recommendations
-router.post('/specialties', llmController.getSpecialtyRecommendations);
-
-// GET /api/llm/greeting - Get greeting message
-router.get('/greeting', llmController.getGreeting);
-
-// GET /api/llm/health - Health check
-router.get('/health', llmController.healthCheck);
+/**
+ * @route   GET /api/llm/test
+ * @desc    Test LLM connection
+ * @access  Private (Admin only in production)
+ */
+router.get('/test', llmController.testConnection);
 
 module.exports = router;
